@@ -12,6 +12,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 @Service
 public class JwtService {
@@ -30,6 +31,7 @@ public class JwtService {
     Instant now = Instant.now();
     return Jwts.builder()
         .subject(user.getId().toString())
+        .id(UUID.randomUUID().toString())
         .claim("email", user.getEmail())
         .claim("roles", user.getRoles().stream().map(Role::getName).toList())
         .claim("permissions", user.getRoles().stream()
