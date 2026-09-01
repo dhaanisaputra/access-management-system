@@ -10,6 +10,8 @@ import com.example.access_management.auth.dto.ResetPasswordRequest;
 import com.example.access_management.auth.dto.VerifyEmailRequest;
 import com.example.access_management.auth.service.AuthService;
 import com.example.access_management.common.dto.ApiResponse;
+import com.example.access_management.security.jwt.JwtService;
+import com.example.access_management.security.service.RedisBlacklistService;
 import com.example.access_management.user.dto.UserResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,8 @@ import org.springframework.web.bind.annotation.*;
 public class AuthController {
 
   private final AuthService authService;
+  private final JwtService jwtService;
+  private final RedisBlacklistService redisBlacklistService;
 
   @PostMapping("/register")
   public ResponseEntity<ApiResponse<UserResponse>> register(@Valid @RequestBody RegisterRequest req) {
@@ -41,7 +45,18 @@ public class AuthController {
   }
 
   @PostMapping("/logout")
-  public ResponseEntity<ApiResponse<Void>> logout(@Valid @RequestBody RefreshRequest req) {
+  public ResponseEntity<ApiResponse<Void>> logout(@Valid @RequestBody RefreshRequest req,
+      @RequestHeader(value = "Authorization", required = false) String authHeader) {
+    if (authHeader != null && authHeader.startsWith("Bearer ")) {
+      String token = authHeader.substring(7);
+      try {
+        if (jwtService.validateToken(token)) {
+          String jti = jwtService.extractJti(token);
+          long ttl = jwtService.getRemainingSeconds(token);
+          redisBlacklistService.blacklist(jti, ttl);
+        }
+      } catch (Exception ignored) {}
+    }
     authService.logout(req);
     return ResponseEntity.ok(ApiResponse.ok(null, "Logged out"));
   }

@@ -23,12 +23,20 @@ import com.example.access_management.security.jwt.JwtService;
 import com.example.access_management.user.dto.UserResponse;
 import com.example.access_management.user.entity.User;
 import com.example.access_management.user.repository.UserRepository;
+import com.example.access_management.auth.entity.LoginAttempt;
+import com.example.access_management.auth.repository.LoginAttemptRepository;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -45,10 +53,18 @@ public class AuthService {
   private final RefreshTokenRepository refreshTokenRepository;
   private final EmailVerificationTokenRepository emailVerificationTokenRepository;
   private final PasswordResetTokenRepository passwordResetTokenRepository;
+  private final LoginAttemptRepository loginAttemptRepository;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final EmailService emailService;
+
+  private AuthService self;
+
+  @Autowired
+  public void setSelf(@Lazy AuthService self) {
+    this.self = self;
+  }
 
   @Value("${jwt.access-expiration}")
   private long accessExp;
@@ -131,16 +147,22 @@ public class AuthService {
   @Transactional
   public LoginResponse login(LoginRequest req) {
     log.debug("login {}", req.email());
-    User user = userRepository.findByEmailWithRolesAndPermissions(req.email())
-        .orElseThrow(() -> new BusinessException("Invalid credentials"));
+    String ip = resolveIp();
+    User user = userRepository.findByEmailWithRolesAndPermissions(req.email()).orElse(null);
+    if (user == null) {
+      try { if (self != null) self.recordLoginAttempt(req.email(), ip, false); else recordLoginAttempt(req.email(), ip, false); } catch (Exception ignored) {}
+      throw new BusinessException("Invalid credentials");
+    }
 
     if (user.isLocked()) {
+      try { if (self != null) self.recordLoginAttempt(req.email(), ip, false); else recordLoginAttempt(req.email(), ip, false); } catch (Exception ignored) {}
       throw new AccountLockedException("Account locked until " + user.getLockoutUntil());
     }
 
     if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
       user.recordFailedAttempt(lockoutThreshold, lockoutDurationMinutes);
       userRepository.save(user);
+      try { if (self != null) self.recordLoginAttempt(req.email(), ip, false); else recordLoginAttempt(req.email(), ip, false); } catch (Exception ignored) {}
       throw new BusinessException("Invalid credentials");
     }
 
@@ -157,7 +179,36 @@ public class AuthService {
         .revoked(false)
         .build();
     refreshTokenRepository.save(rt);
+    try { if (self != null) self.recordLoginAttempt(req.email(), ip, true); else recordLoginAttempt(req.email(), ip, true); } catch (Exception ignored) {}
     return new LoginResponse(accessToken, rawRefresh, accessExp, "Bearer");
+  }
+
+  @Async
+  public void recordLoginAttempt(String email, String ipAddress, boolean success) {
+    try {
+      LoginAttempt attempt = LoginAttempt.builder()
+          .email(email)
+          .ipAddress(ipAddress != null ? ipAddress : "unknown")
+          .success(success)
+          .attemptedAt(Instant.now())
+          .build();
+      loginAttemptRepository.save(attempt);
+    } catch (Exception e) {
+      log.warn("Failed to record login attempt for {}: {}", email, e.getMessage());
+    }
+  }
+
+  private String resolveIp() {
+    try {
+      var attrs = RequestContextHolder.getRequestAttributes();
+      if (attrs instanceof ServletRequestAttributes sra) {
+        HttpServletRequest req = sra.getRequest();
+        String ip = req.getHeader("X-Forwarded-For");
+        if (ip != null && !ip.isBlank()) return ip.split(",")[0].trim();
+        return req.getRemoteAddr();
+      }
+    } catch (Exception ignored) {}
+    return "unknown";
   }
 
   @Transactional
