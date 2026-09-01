@@ -27,8 +27,8 @@ class JwtServiceTest {
   @Test
   @Transactional
   void generateAndValidate() {
-    Permission perm = permRepo.save(Permission.builder().name("user:read").description("read").build());
-    Role role = Role.builder().name("ROLE_USER").description("user").permissions(Set.of(perm)).build();
+    Permission perm = permRepo.save(Permission.builder().name("jwt_perm_" + System.nanoTime()).description("read").build());
+    Role role = Role.builder().name("ROLE_JWT_" + System.nanoTime()).description("user").permissions(Set.of(perm)).build();
     role = roleRepo.save(role);
 
     User u = User.builder().email("jwt@b.com").passwordHash("x").fullName("J").roles(Set.of(role)).build();
@@ -42,8 +42,8 @@ class JwtServiceTest {
   @Test
   @Transactional
   void extractEmailAndUserId() {
-    Permission perm = permRepo.save(Permission.builder().name("user:read2").description("read2").build());
-    Role role = Role.builder().name("ROLE_USER2").description("user2").permissions(Set.of(perm)).build();
+    Permission perm = permRepo.save(Permission.builder().name("jwt_perm2_" + System.nanoTime()).description("read2").build());
+    Role role = Role.builder().name("ROLE_JWT2_" + System.nanoTime()).description("user2").permissions(Set.of(perm)).build();
     role = roleRepo.save(role);
 
     User u = User.builder().email("jwt2@b.com").passwordHash("x").fullName("J2").roles(Set.of(role)).build();

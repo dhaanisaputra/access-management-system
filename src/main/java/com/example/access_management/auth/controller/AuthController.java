@@ -7,12 +7,14 @@ import com.example.access_management.auth.dto.RegisterRequest;
 import com.example.access_management.common.dto.ApiResponse;
 import com.example.access_management.user.dto.UserResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 @RequestMapping("/api/v1/auth")
 public interface AuthController {
 
   @PostMapping("/register")
+  @ResponseStatus(HttpStatus.CREATED)
   ApiResponse<UserResponse> register(@Valid @RequestBody RegisterRequest req);
 
   @PostMapping("/login")
