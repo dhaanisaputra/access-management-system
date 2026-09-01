@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Superpowers (local specs/plans, not for repo) ###
+.superpowers/
+docs/superpowers/
