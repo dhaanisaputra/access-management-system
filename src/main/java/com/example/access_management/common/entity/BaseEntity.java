@@ -6,7 +6,6 @@ import lombok.Setter;
 import java.time.Instant;
 
 @Getter
-@Setter
 @MappedSuperclass
 public abstract class BaseEntity {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -17,6 +16,9 @@ public abstract class BaseEntity {
 
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
+
+  // JPA needs ability to set id reflectively; protected setter via method
+  protected void setId(Long id) { this.id = id; }
 
   @PrePersist
   void prePersist() {

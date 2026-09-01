@@ -27,25 +27,17 @@ public class DataSeeder implements CommandLineRunner {
         "user:create", "user:read", "user:update", "user:delete", "role:assign", "role:read");
     for (String n : requiredPerms) {
       if (permRepo.findByName(n).isEmpty()) {
-        Permission p = new Permission();
-        p.setName(n);
-        p.setDescription(n);
+        Permission p = Permission.builder().name(n).description(n).build();
         permRepo.save(p);
       }
     }
     if (roleRepo.findByName("ROLE_USER").isEmpty()) {
       Permission read = permRepo.findByName("user:read").orElseThrow();
-      Role userRole = new Role();
-      userRole.setName("ROLE_USER");
-      userRole.setDescription("Default user");
-      userRole.setPermissions(Set.of(read));
+      Role userRole = Role.builder().name("ROLE_USER").description("Default user").permissions(Set.of(read)).build();
       roleRepo.save(userRole);
     }
     if (roleRepo.findByName("ROLE_ADMIN").isEmpty()) {
-      Role admin = new Role();
-      admin.setName("ROLE_ADMIN");
-      admin.setDescription("Administrator");
-      admin.setPermissions(new HashSet<>(permRepo.findAll()));
+      Role admin = Role.builder().name("ROLE_ADMIN").description("Administrator").permissions(new HashSet<>(permRepo.findAll())).build();
       roleRepo.save(admin);
     }
   }

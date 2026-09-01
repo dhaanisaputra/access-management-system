@@ -64,12 +64,7 @@ public class AuthService {
       Role r = Role.builder().name("ROLE_USER").description("Default user").build();
       return roleRepository.save(r);
     });
-    User user = User.builder()
-        .email(req.email())
-        .passwordHash(passwordEncoder.encode(req.password()))
-        .fullName(req.fullName())
-        .roles(Set.of(role))
-        .build();
+    User user = User.create(req.email(), passwordEncoder.encode(req.password()), req.fullName(), Set.of(role));
     user = userRepository.save(user);
     return MapperUtil.toUserResponse(user);
   }
@@ -80,22 +75,17 @@ public class AuthService {
     User user = userRepository.findByEmailWithRolesAndPermissions(req.email())
         .orElseThrow(() -> new BusinessException("Invalid credentials"));
 
-    if (user.getLockoutUntil() != null && user.getLockoutUntil().isAfter(Instant.now())) {
+    if (user.isLocked()) {
       throw new AccountLockedException("Account locked until " + user.getLockoutUntil());
     }
 
     if (!passwordEncoder.matches(req.password(), user.getPasswordHash())) {
-      int attempts = user.getFailedAttempts() + 1;
-      user.setFailedAttempts(attempts);
-      if (attempts >= lockoutThreshold) {
-        user.setLockoutUntil(Instant.now().plusSeconds(lockoutDurationMinutes * 60));
-      }
+      user.recordFailedAttempt(lockoutThreshold, lockoutDurationMinutes);
       userRepository.save(user);
       throw new BusinessException("Invalid credentials");
     }
 
-    user.setFailedAttempts(0);
-    user.setLockoutUntil(null);
+    user.resetLockout();
     userRepository.save(user);
 
     String accessToken = jwtService.generateAccessToken(user);
