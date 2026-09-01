@@ -23,8 +23,12 @@ import com.example.access_management.security.jwt.JwtService;
 import com.example.access_management.user.dto.UserResponse;
 import com.example.access_management.user.entity.User;
 import com.example.access_management.user.repository.UserRepository;
+import com.example.access_management.ai.service.GeoIpService;
+import com.example.access_management.ai.service.RiskScoringService;
 import com.example.access_management.auth.entity.LoginAttempt;
+import com.example.access_management.auth.entity.UserSession;
 import com.example.access_management.auth.repository.LoginAttemptRepository;
+import com.example.access_management.auth.repository.UserSessionRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +45,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -54,10 +59,13 @@ public class AuthService {
   private final EmailVerificationTokenRepository emailVerificationTokenRepository;
   private final PasswordResetTokenRepository passwordResetTokenRepository;
   private final LoginAttemptRepository loginAttemptRepository;
+  private final UserSessionRepository userSessionRepository;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
   private final EmailService emailService;
+  private final RiskScoringService riskScoringService;
+  private final GeoIpService geoIpService;
 
   private AuthService self;
 
@@ -148,6 +156,7 @@ public class AuthService {
   public LoginResponse login(LoginRequest req) {
     log.debug("login {}", req.email());
     String ip = resolveIp();
+    String userAgent = resolveUserAgent();
     User user = userRepository.findByEmailWithRolesAndPermissions(req.email()).orElse(null);
     if (user == null) {
       try { if (self != null) self.recordLoginAttempt(req.email(), ip, false); else recordLoginAttempt(req.email(), ip, false); } catch (Exception ignored) {}
@@ -169,6 +178,43 @@ public class AuthService {
     user.resetLockout();
     userRepository.save(user);
 
+    // ponytail: risk scoring + UserSession for every successful login
+    RiskScoringService.RiskResult risk = null;
+    try {
+      risk = riskScoringService.calculateRisk(req.email(), ip, userAgent);
+      if ("HIGH".equals(risk.level())) {
+        log.warn("suspicious login email={} ip={} ua={} score={} reasons={}", req.email(), ip, userAgent, risk.score(), risk.reasons());
+      } else if ("MEDIUM".equals(risk.level())) {
+        log.info("medium-risk login email={} ip={} score={} reasons={}", req.email(), ip, risk.score(), risk.reasons());
+      } else {
+        log.debug("risk email={} score={} level={}", req.email(), risk.score(), risk.level());
+      }
+    } catch (Exception e) {
+      log.warn("risk scoring failed for {}: {}", req.email(), e.getMessage());
+      risk = new RiskScoringService.RiskResult(0, "LOW", List.of(), false);
+    }
+
+    // save UserSession
+    try {
+      GeoIpService.GeoResult geo = geoIpService.lookup(ip);
+      String[] parsed = parseUa(userAgent);
+      UserSession session = UserSession.builder()
+          .user(user)
+          .ipAddress(ip)
+          .userAgent(userAgent)
+          .country(geo.country())
+          .city(geo.city())
+          .device(parsed[0])
+          .os(parsed[1])
+          .browser(parsed[2])
+          .lastActive(Instant.now())
+          .isActive(true)
+          .build();
+      userSessionRepository.save(session);
+    } catch (Exception e) {
+      log.warn("failed to save UserSession for {}: {}", req.email(), e.getMessage());
+    }
+
     String accessToken = jwtService.generateAccessToken(user);
     String rawRefresh = UUID.randomUUID().toString();
     String hash = sha256(rawRefresh);
@@ -180,7 +226,8 @@ public class AuthService {
         .build();
     refreshTokenRepository.save(rt);
     try { if (self != null) self.recordLoginAttempt(req.email(), ip, true); else recordLoginAttempt(req.email(), ip, true); } catch (Exception ignored) {}
-    return new LoginResponse(accessToken, rawRefresh, accessExp, "Bearer");
+    if (risk == null) risk = new RiskScoringService.RiskResult(0, "LOW", List.of(), false);
+    return new LoginResponse(accessToken, rawRefresh, accessExp, "Bearer", risk.score(), risk.level(), risk.suspicious(), risk.reasons());
   }
 
   @Async
@@ -211,6 +258,36 @@ public class AuthService {
     return "unknown";
   }
 
+  private String resolveUserAgent() {
+    try {
+      var attrs = RequestContextHolder.getRequestAttributes();
+      if (attrs instanceof ServletRequestAttributes sra) {
+        String ua = sra.getRequest().getHeader("User-Agent");
+        if (ua != null && !ua.isBlank()) return ua;
+        return sra.getRequest().getHeader("user-agent");
+      }
+    } catch (Exception ignored) {}
+    return null;
+  }
+
+  // ponytail: lazy ua-parser, naive fallback to avoid extra bean
+  private String[] parseUa(String ua) {
+    String device = "Unknown", os = "Unknown", browser = "Unknown";
+    if (ua != null && !ua.isBlank()) {
+      try {
+        ua_parser.Parser parser = new ua_parser.Parser();
+        ua_parser.Client c = parser.parse(ua);
+        if (c.device != null && c.device.family != null) device = c.device.family;
+        if (c.os != null && c.os.family != null) os = c.os.family;
+        if (c.userAgent != null && c.userAgent.family != null) browser = c.userAgent.family;
+      } catch (Exception e) {
+        // fallback: first token
+        device = ua.length() > 80 ? ua.substring(0, 80) : ua;
+      }
+    }
+    return new String[]{device, os, browser};
+  }
+
   @Transactional
   public LoginResponse refresh(RefreshRequest req) {
     String hash = sha256(req.refreshToken());
@@ -235,7 +312,7 @@ public class AuthService {
         .revoked(false)
         .build();
     refreshTokenRepository.save(newToken);
-    return new LoginResponse(accessToken, rawRefresh, accessExp, "Bearer");
+    return new LoginResponse(accessToken, rawRefresh, accessExp, "Bearer", 0, "LOW", false, List.of());
   }
 
   @Transactional
