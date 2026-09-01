@@ -9,6 +9,8 @@ public class EmailService {
 
   private String lastVerificationToken;
   private String lastVerificationEmail;
+  private String lastResetToken;
+  private String lastResetEmail;
 
   public void sendVerification(String email, String rawToken) {
     this.lastVerificationEmail = email;
@@ -17,7 +19,13 @@ public class EmailService {
   }
 
   public void sendReset(String email, String rawToken) {
+    this.lastResetEmail = email;
+    this.lastResetToken = rawToken;
     log.info("Mock email: reset link http://localhost:8080/api/v1/auth/reset-password?token={} to {}", rawToken, email);
+  }
+
+  public void sendPasswordReset(String email, String rawToken) {
+    sendReset(email, rawToken);
   }
 
   public String getLastVerificationToken() {
@@ -26,5 +34,13 @@ public class EmailService {
 
   public String getLastVerificationEmail() {
     return lastVerificationEmail;
+  }
+
+  public String getLastResetToken() {
+    return lastResetToken;
+  }
+
+  public String getLastResetEmail() {
+    return lastResetEmail;
   }
 }

@@ -1,10 +1,12 @@
 package com.example.access_management.auth.controller;
 
+import com.example.access_management.auth.dto.ForgotPasswordRequest;
 import com.example.access_management.auth.dto.LoginRequest;
 import com.example.access_management.auth.dto.LoginResponse;
 import com.example.access_management.auth.dto.RefreshRequest;
 import com.example.access_management.auth.dto.RegisterRequest;
 import com.example.access_management.auth.dto.ResendVerificationRequest;
+import com.example.access_management.auth.dto.ResetPasswordRequest;
 import com.example.access_management.auth.dto.VerifyEmailRequest;
 import com.example.access_management.auth.service.AuthService;
 import com.example.access_management.common.dto.ApiResponse;
@@ -66,5 +68,17 @@ public class AuthController {
   public ResponseEntity<ApiResponse<Void>> resendVerification(@Valid @RequestBody ResendVerificationRequest req) {
     authService.resendVerification(req.email());
     return ResponseEntity.ok(ApiResponse.ok(null, "Verification email resent"));
+  }
+
+  @PostMapping("/forgot-password")
+  public ResponseEntity<ApiResponse<Void>> forgotPassword(@Valid @RequestBody ForgotPasswordRequest req) {
+    authService.forgotPassword(req.email());
+    return ResponseEntity.ok(ApiResponse.ok(null, "Password reset email sent"));
+  }
+
+  @PostMapping("/reset-password")
+  public ResponseEntity<ApiResponse<Void>> resetPassword(@Valid @RequestBody ResetPasswordRequest req) {
+    authService.resetPassword(req);
+    return ResponseEntity.ok(ApiResponse.ok(null, "Password reset successful"));
   }
 }

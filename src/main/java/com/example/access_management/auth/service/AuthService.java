@@ -4,9 +4,12 @@ import com.example.access_management.auth.dto.LoginRequest;
 import com.example.access_management.auth.dto.LoginResponse;
 import com.example.access_management.auth.dto.RefreshRequest;
 import com.example.access_management.auth.dto.RegisterRequest;
+import com.example.access_management.auth.dto.ResetPasswordRequest;
 import com.example.access_management.auth.entity.EmailVerificationToken;
+import com.example.access_management.auth.entity.PasswordResetToken;
 import com.example.access_management.auth.entity.RefreshToken;
 import com.example.access_management.auth.repository.EmailVerificationTokenRepository;
+import com.example.access_management.auth.repository.PasswordResetTokenRepository;
 import com.example.access_management.auth.repository.RefreshTokenRepository;
 import com.example.access_management.common.exception.AccountLockedException;
 import com.example.access_management.common.exception.BusinessException;
@@ -41,6 +44,7 @@ public class AuthService {
   private final UserRepository userRepository;
   private final RefreshTokenRepository refreshTokenRepository;
   private final EmailVerificationTokenRepository emailVerificationTokenRepository;
+  private final PasswordResetTokenRepository passwordResetTokenRepository;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
@@ -190,6 +194,45 @@ public class AuthService {
       rt.setRevoked(true);
       refreshTokenRepository.save(rt);
     });
+  }
+
+  @Transactional
+  public void forgotPassword(String email) {
+    User user = userRepository.findByEmail(email)
+        .orElseThrow(() -> new BusinessException("User not found: " + email));
+    String rawToken = UUID.randomUUID().toString();
+    String hash = sha256(rawToken);
+    PasswordResetToken prt = PasswordResetToken.builder()
+        .user(user)
+        .tokenHash(hash)
+        .expiresAt(Instant.now().plusSeconds(3600))
+        .used(false)
+        .build();
+    passwordResetTokenRepository.save(prt);
+    emailService.sendPasswordReset(user.getEmail(), rawToken);
+  }
+
+  @Transactional
+  public void resetPassword(ResetPasswordRequest req) {
+    String hash = sha256(req.token());
+    PasswordResetToken prt = passwordResetTokenRepository.findByTokenHash(hash)
+        .orElseThrow(() -> new BusinessException("Invalid reset token"));
+    if (prt.isUsed() || prt.isExpired()) {
+      throw new BusinessException("Invalid or expired reset token");
+    }
+    User user = prt.getUser();
+    user.changePasswordHash(passwordEncoder.encode(req.newPassword()));
+    userRepository.save(user);
+    prt.markUsed();
+    passwordResetTokenRepository.save(prt);
+    // revoke all active refresh tokens
+    var active = refreshTokenRepository.findByUserIdAndRevokedFalse(user.getId());
+    for (var rt : active) {
+      rt.setRevoked(true);
+    }
+    if (!active.isEmpty()) {
+      refreshTokenRepository.saveAll(active);
+    }
   }
 
   @Transactional(readOnly = true)
