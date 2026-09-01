@@ -4,12 +4,15 @@ import com.example.access_management.auth.dto.LoginRequest;
 import com.example.access_management.auth.dto.LoginResponse;
 import com.example.access_management.auth.dto.RefreshRequest;
 import com.example.access_management.auth.dto.RegisterRequest;
+import com.example.access_management.auth.entity.EmailVerificationToken;
 import com.example.access_management.auth.entity.RefreshToken;
+import com.example.access_management.auth.repository.EmailVerificationTokenRepository;
 import com.example.access_management.auth.repository.RefreshTokenRepository;
 import com.example.access_management.common.exception.AccountLockedException;
 import com.example.access_management.common.exception.BusinessException;
 import com.example.access_management.common.exception.DuplicateResourceException;
 import com.example.access_management.common.exception.ResourceNotFoundException;
+import com.example.access_management.common.service.EmailService;
 import com.example.access_management.common.util.MapperUtil;
 import com.example.access_management.role.entity.Role;
 import com.example.access_management.role.repository.RoleRepository;
@@ -37,9 +40,11 @@ public class AuthService {
 
   private final UserRepository userRepository;
   private final RefreshTokenRepository refreshTokenRepository;
+  private final EmailVerificationTokenRepository emailVerificationTokenRepository;
   private final RoleRepository roleRepository;
   private final PasswordEncoder passwordEncoder;
   private final JwtService jwtService;
+  private final EmailService emailService;
 
   @Value("${jwt.access-expiration}")
   private long accessExp;
@@ -66,7 +71,57 @@ public class AuthService {
     });
     User user = User.create(req.email(), passwordEncoder.encode(req.password()), req.fullName(), Set.of(role));
     user = userRepository.save(user);
+    String rawToken = UUID.randomUUID().toString();
+    String hash = sha256(rawToken);
+    EmailVerificationToken evt = EmailVerificationToken.builder()
+        .user(user)
+        .tokenHash(hash)
+        .expiresAt(Instant.now().plusSeconds(86400))
+        .used(false)
+        .build();
+    emailVerificationTokenRepository.save(evt);
+    emailService.sendVerification(user.getEmail(), rawToken);
     return MapperUtil.toUserResponse(user);
+  }
+
+  @Transactional
+  public UserResponse verifyEmail(String rawToken) {
+    String hash = sha256(rawToken);
+    EmailVerificationToken evt = emailVerificationTokenRepository.findByTokenHash(hash)
+        .orElseThrow(() -> new BusinessException("Invalid verification token"));
+    if (evt.isUsed() || evt.isExpired()) {
+      throw new BusinessException("Invalid or expired verification token");
+    }
+    evt.markUsed();
+    emailVerificationTokenRepository.save(evt);
+    User user = evt.getUser();
+    user.verifyEmail();
+    userRepository.save(user);
+    return MapperUtil.toUserResponse(user);
+  }
+
+  @Transactional
+  public void resendVerification(String email) {
+    User user = userRepository.findByEmail(email)
+        .orElseThrow(() -> new ResourceNotFoundException("User not found: " + email));
+    if (user.isEmailVerified()) {
+      throw new BusinessException("Email already verified");
+    }
+    var existing = emailVerificationTokenRepository.findByUserIdAndUsedFalse(user.getId());
+    if (!existing.isEmpty()) {
+      emailVerificationTokenRepository.deleteAll(existing);
+      emailVerificationTokenRepository.flush();
+    }
+    String rawToken = UUID.randomUUID().toString();
+    String hash = sha256(rawToken);
+    EmailVerificationToken evt = EmailVerificationToken.builder()
+        .user(user)
+        .tokenHash(hash)
+        .expiresAt(Instant.now().plusSeconds(86400))
+        .used(false)
+        .build();
+    emailVerificationTokenRepository.save(evt);
+    emailService.sendVerification(user.getEmail(), rawToken);
   }
 
   @Transactional
@@ -144,7 +199,7 @@ public class AuthService {
     return MapperUtil.toUserResponse(user);
   }
 
-  static String sha256(String token) {
+  public static String sha256(String token) {
     try {
       MessageDigest digest = MessageDigest.getInstance("SHA-256");
       byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));

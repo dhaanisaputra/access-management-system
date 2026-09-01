@@ -4,6 +4,8 @@ import com.example.access_management.auth.dto.LoginRequest;
 import com.example.access_management.auth.dto.LoginResponse;
 import com.example.access_management.auth.dto.RefreshRequest;
 import com.example.access_management.auth.dto.RegisterRequest;
+import com.example.access_management.auth.dto.ResendVerificationRequest;
+import com.example.access_management.auth.dto.VerifyEmailRequest;
 import com.example.access_management.auth.service.AuthService;
 import com.example.access_management.common.dto.ApiResponse;
 import com.example.access_management.user.dto.UserResponse;
@@ -47,5 +49,22 @@ public class AuthController {
     Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     String email = auth != null ? auth.getName() : null;
     return ResponseEntity.ok(ApiResponse.ok(authService.me(email)));
+  }
+
+  @PostMapping("/verify-email")
+  public ResponseEntity<ApiResponse<UserResponse>> verifyEmail(
+      @RequestParam(value = "token", required = false) String tokenParam,
+      @Valid @RequestBody(required = false) VerifyEmailRequest body) {
+    String token = tokenParam != null ? tokenParam : (body != null ? body.token() : null);
+    if (token == null || token.isBlank()) {
+      throw new com.example.access_management.common.exception.BusinessException("Token is required");
+    }
+    return ResponseEntity.ok(ApiResponse.ok(authService.verifyEmail(token)));
+  }
+
+  @PostMapping("/resend-verification")
+  public ResponseEntity<ApiResponse<Void>> resendVerification(@Valid @RequestBody ResendVerificationRequest req) {
+    authService.resendVerification(req.email());
+    return ResponseEntity.ok(ApiResponse.ok(null, "Verification email resent"));
   }
 }
