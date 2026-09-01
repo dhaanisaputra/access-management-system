@@ -13,4 +13,8 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, Long
   long countByEmail(String email);
 
   List<LoginAttempt> findByEmail(String email);
+
+  java.util.Optional<LoginAttempt> findTopByEmailAndSuccessTrueOrderByAttemptedAtDesc(String email);
+
+  java.util.Optional<LoginAttempt> findTopByEmailOrderByAttemptedAtDesc(String email);
 }
