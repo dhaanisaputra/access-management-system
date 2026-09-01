@@ -62,4 +62,18 @@ public class JwtService {
         .getPayload().getSubject();
     return Long.valueOf(subject);
   }
+
+  public String extractJti(String token) {
+    return Jwts.parser().verifyWith(key()).build().parseSignedClaims(token).getPayload().getId();
+  }
+
+  public Date getExpiration(String token) {
+    return Jwts.parser().verifyWith(key()).build().parseSignedClaims(token).getPayload().getExpiration();
+  }
+
+  public long getRemainingSeconds(String token) {
+    Date exp = getExpiration(token);
+    long diff = exp.getTime() - System.currentTimeMillis();
+    return diff > 0 ? diff / 1000 : 0;
+  }
 }

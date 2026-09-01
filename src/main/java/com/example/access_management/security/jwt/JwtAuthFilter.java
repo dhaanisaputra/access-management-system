@@ -1,6 +1,7 @@
 package com.example.access_management.security.jwt;
 
 import com.example.access_management.security.service.CustomUserDetailsService;
+import com.example.access_management.security.service.RedisBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,6 +23,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
   private final JwtService jwtService;
   private final CustomUserDetailsService userDetailsService;
+  private final RedisBlacklistService redisBlacklistService;
 
   @Override
   protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -31,6 +33,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
       String token = header.substring(7);
       if (jwtService.validateToken(token)) {
         try {
+          String jti = jwtService.extractJti(token);
+          if (redisBlacklistService.isBlacklisted(jti)) {
+            response.setStatus(401);
+            response.setContentType("application/json");
+            response.getWriter().write("{\"success\":false,\"message\":\"Token revoked\"}");
+            return;
+          }
           String email = jwtService.extractEmail(token);
           UserDetails userDetails = userDetailsService.loadUserByUsername(email);
           UsernamePasswordAuthenticationToken auth =
