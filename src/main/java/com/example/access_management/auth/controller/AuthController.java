@@ -4,28 +4,48 @@ import com.example.access_management.auth.dto.LoginRequest;
 import com.example.access_management.auth.dto.LoginResponse;
 import com.example.access_management.auth.dto.RefreshRequest;
 import com.example.access_management.auth.dto.RegisterRequest;
+import com.example.access_management.auth.service.AuthService;
 import com.example.access_management.common.dto.ApiResponse;
 import com.example.access_management.user.dto.UserResponse;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+@RestController
 @RequestMapping("/api/v1/auth")
-public interface AuthController {
+@RequiredArgsConstructor
+public class AuthController {
+
+  private final AuthService authService;
 
   @PostMapping("/register")
-  @ResponseStatus(HttpStatus.CREATED)
-  ApiResponse<UserResponse> register(@Valid @RequestBody RegisterRequest req);
+  public ResponseEntity<ApiResponse<UserResponse>> register(@Valid @RequestBody RegisterRequest req) {
+    return ResponseEntity.status(201).body(ApiResponse.created(authService.register(req)));
+  }
 
   @PostMapping("/login")
-  ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req);
+  public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest req) {
+    return ResponseEntity.ok(ApiResponse.ok(authService.login(req)));
+  }
 
   @PostMapping("/refresh")
-  ApiResponse<LoginResponse> refresh(@Valid @RequestBody RefreshRequest req);
+  public ResponseEntity<ApiResponse<LoginResponse>> refresh(@Valid @RequestBody RefreshRequest req) {
+    return ResponseEntity.ok(ApiResponse.ok(authService.refresh(req)));
+  }
 
   @PostMapping("/logout")
-  ApiResponse<Void> logout(@Valid @RequestBody RefreshRequest req);
+  public ResponseEntity<ApiResponse<Void>> logout(@Valid @RequestBody RefreshRequest req) {
+    authService.logout(req);
+    return ResponseEntity.ok(ApiResponse.ok(null, "Logged out"));
+  }
 
   @GetMapping("/me")
-  ApiResponse<UserResponse> me();
+  public ResponseEntity<ApiResponse<UserResponse>> me() {
+    Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    String email = auth != null ? auth.getName() : null;
+    return ResponseEntity.ok(ApiResponse.ok(authService.me(email)));
+  }
 }
