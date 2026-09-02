@@ -48,6 +48,12 @@ public class GlobalExceptionHandler {
         .body(new ApiResponse<>(false, "Validation failed: " + msg, null, Instant.now()));
   }
 
+  @ExceptionHandler({org.springframework.security.authorization.AuthorizationDeniedException.class, org.springframework.security.access.AccessDeniedException.class})
+  public ResponseEntity<ApiResponse<Void>> handleDenied(Exception ex) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(new ApiResponse<>(false, "Forbidden", null, Instant.now()));
+  }
+
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleGeneral(Exception ex) {
     log.error("Unexpected error", ex);

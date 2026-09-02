@@ -15,5 +15,7 @@ public interface UserSessionRepository extends JpaRepository<UserSession, Long> 
 
   Optional<UserSession> findTopByUserIdAndIsActiveTrueOrderByLastActiveDesc(Long userId);
 
+  Optional<UserSession> findTopByUserIdOrderByLastActiveDesc(Long userId);
+
   void deleteByLastActiveBefore(Instant cutoff);
 }
